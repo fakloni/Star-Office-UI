@@ -1,10 +1,11 @@
 # Star Office UI
 
+![Star Office UI 封面 1](docs/screenshots/readme-cover-1.jpg)
+![Star Office UI 封面 2](docs/screenshots/readme-cover-2.jpg)
+
 一个面向多 Agent 协作的像素办公室看板：把 AI 助手（OpenClaw / 龙虾）的工作状态实时可视化，帮助团队直观看到“谁在做什么、昨天做了什么、现在是否在线”。
 
 > 本项目为 **Ring Hyacinth 与 Simon Lee 的共同项目（co-created project）**。
-
-![Star Office UI 预览](docs/screenshots/office-preview-20260301.jpg)
 
 ---
 
@@ -244,7 +245,8 @@ A pixel office dashboard for multi-agent collaboration: visualize your AI assist
 
 > This project is a **co-created work by Ring Hyacinth and Simon Lee**.
 
-![Star Office UI Preview](docs/screenshots/office-preview-20260301.jpg)
+![Star Office UI Cover 1](docs/screenshots/readme-cover-1.jpg)
+![Star Office UI Cover 2](docs/screenshots/readme-cover-2.jpg)
 
 ---
 
