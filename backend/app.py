@@ -124,6 +124,9 @@ WRITE_RATE_LIMIT_WINDOW_SECONDS = max(1, _limit_window)
 _rate_buckets = {}
 _rate_lock = threading.Lock()
 
+# Optional read hardening for asset inventory/template endpoints (default OFF for compatibility)
+ASSET_READ_AUTH_ENABLED = feature_enabled("STAR_OFFICE_ASSET_READ_AUTH_ENABLED", default=False)
+
 if is_production_mode():
     hardening_errors = []
     if not is_strong_secret(str(app.secret_key)):
@@ -161,6 +164,15 @@ def _write_api_auth_ok() -> bool:
     return is_valid_bearer(token, WRITE_API_TOKENS)
 
 
+def _require_asset_read_auth():
+    if not ASSET_READ_AUTH_ENABLED:
+        return None
+    # Allow either drawer session auth or bearer token auth.
+    if _is_asset_editor_authed() or _write_api_auth_ok():
+        return None
+    return jsonify({"ok": False, "code": "UNAUTHORIZED", "msg": "Asset read auth required"}), 401
+
+
 def _client_ip() -> str:
     # Prefer reverse-proxy headers when present.
     xff = (request.headers.get("X-Forwarded-For") or "").strip()
@@ -176,6 +188,12 @@ def _check_rate_limit(path: str) -> tuple[bool, int]:
     now = int(time.time())
     key = f"{_client_ip()}::{path}"
     with _rate_lock:
+        # Opportunistic cleanup to avoid unbounded bucket growth.
+        if len(_rate_buckets) > 5000:
+            expired_keys = [k for k, v in _rate_buckets.items() if now >= int(v.get("reset_at", 0))]
+            for k in expired_keys[:2000]:
+                _rate_buckets.pop(k, None)
+
         item = _rate_buckets.get(key)
         if not item or now >= item["reset_at"]:
             _rate_buckets[key] = {"count": 1, "reset_at": now + WRITE_RATE_LIMIT_WINDOW_SECONDS}
@@ -1361,6 +1379,9 @@ def set_state_endpoint():
 
 @app.route("/assets/template.zip", methods=["GET"])
 def assets_template_download():
+    guard = _require_asset_read_auth()
+    if guard:
+        return guard
     if not os.path.exists(ASSET_TEMPLATE_ZIP):
         return jsonify({"ok": False, "msg": "模板包不存在，请先生成"}), 404
     return send_from_directory(ROOT_DIR, "assets-replace-template.zip", as_attachment=True)
@@ -1368,6 +1389,9 @@ def assets_template_download():
 
 @app.route("/assets/list", methods=["GET"])
 def assets_list():
+    guard = _require_asset_read_auth()
+    if guard:
+        return guard
     items = []
     for p in FRONTEND_PATH.rglob("*"):
         if not p.is_file():

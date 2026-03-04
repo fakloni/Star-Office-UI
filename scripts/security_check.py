@@ -85,6 +85,7 @@ def main() -> int:
     write_api_tokens = (os.getenv("STAR_OFFICE_WRITE_API_TOKENS") or "").strip()
     max_upload_mb_raw = (os.getenv("STAR_OFFICE_MAX_UPLOAD_MB") or "20").strip()
     write_rl_raw = (os.getenv("STAR_OFFICE_WRITE_RATE_LIMIT") or "60,60").strip()
+    asset_read_auth_enabled = (os.getenv("STAR_OFFICE_ASSET_READ_AUTH_ENABLED") or "").strip().lower() in {"1", "true", "yes", "on"}
 
     if in_prod:
         if not is_strong_secret(secret):
@@ -118,6 +119,9 @@ def main() -> int:
             failures.append("STAR_OFFICE_WRITE_RATE_LIMIT must be positive integers, e.g. 60,60")
     except Exception:
         failures.append("STAR_OFFICE_WRITE_RATE_LIMIT format invalid, expected <count>,<window_seconds> like 60,60")
+
+    if in_prod and not asset_read_auth_enabled:
+        warnings.append("STAR_OFFICE_ASSET_READ_AUTH_ENABLED is OFF in production (asset inventory endpoints are publicly readable)")
 
     tracked = tracked_files()
     risky_tracked = [
