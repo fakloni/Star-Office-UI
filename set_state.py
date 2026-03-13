@@ -20,8 +20,6 @@ STATE_FILE = os.environ.get(
 VALID_STATES = [
     "idle",
     "writing",
-    "receiving",
-    "replying",
     "researching",
     "executing",
     "syncing",
