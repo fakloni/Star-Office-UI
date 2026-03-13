@@ -1705,6 +1705,8 @@
         let coordsOverlay, coordsDisplay, coordsToggle;
         let showCoords = false;
         let guestAgents = [];
+        let mainAgentName = 'Star';
+        let mainAgentNameText = null;
         let guestSprites = {}; // agentId -> {sprite, nameText}
         let guestBubbles = {}; // agentId -> bubble container
         const GUEST_AVATARS = ['guest_role_1','guest_role_2','guest_role_3','guest_role_4','guest_role_5','guest_role_6'];
@@ -3845,6 +3847,7 @@ function toggleBrokerPanel() {
                 .then(data => {
                     // 无论后端返回是否为数组，demo=1 都应保证本地 demo 访客可见
                     guestAgents = Array.isArray(data) ? data : [];
+                    updateMainAgentNameFromAgents();
 
                     // 新访客检测：触发 Star 欢迎气泡（只欢迎真实访客，不欢迎 demo）
                     try {
@@ -4075,6 +4078,18 @@ function toggleBrokerPanel() {
             // Default: idle shows Star idle animation
             star.setVisible(true);
             star.anims.play('star_idle', true);
+
+            // 主角名字（常驻显示）
+            mainAgentNameText = game.add.text(star.x, star.y - 118, mainAgentName, {
+                fontFamily: 'ArkPixel, monospace',
+                fontSize: '16px',
+                fill: '#ffd700',
+                stroke: '#000',
+                strokeThickness: 4,
+                backgroundColor: 'rgba(0,0,0,0.25)',
+                padding: { left: 8, right: 8, top: 4, bottom: 4 }
+            }).setOrigin(0.5);
+            mainAgentNameText.setDepth(2602);
 
             // Sofa stays static when idle (no longer the main idle animation)
             sofa.anims.stop();
@@ -4553,6 +4568,17 @@ function toggleBrokerPanel() {
             // 移动 + 小踱步
             moveStar(time);
 
+            // 主角名字跟随（idle 跟随 star，工作态跟随 desk 的 starWorking）
+            if (mainAgentNameText) {
+                if (window.starWorking && window.starWorking.visible) {
+                    mainAgentNameText.x = window.starWorking.x;
+                    mainAgentNameText.y = window.starWorking.y - 136;
+                } else if (star) {
+                    mainAgentNameText.x = star.x;
+                    mainAgentNameText.y = star.y - 118;
+                }
+            }
+
             // guest 随机想法泡泡
             maybeShowGuestBubble(time);
 
@@ -4585,6 +4611,18 @@ function toggleBrokerPanel() {
             if (s === 'sync') return 'syncing';
             if (s === 'research') return 'researching';
             return s;
+        }
+
+        function updateMainAgentNameFromAgents() {
+            try {
+                const main = (guestAgents || []).find(a => a && a.isMain);
+                if (main && main.name) {
+                    mainAgentName = String(main.name);
+                    if (mainAgentNameText && mainAgentNameText.setText) {
+                        mainAgentNameText.setText(mainAgentName);
+                    }
+                }
+            } catch (e) {}
         }
 
         function applyVisualState(nextState) {
