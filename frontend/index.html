@@ -711,6 +711,53 @@
             padding-bottom: 5px !important;
             filter: brightness(0.97);
         }
+        #status-history-wrap {
+            margin-top: 6px;
+            border: 1px solid #374151;
+            border-radius: 6px;
+            background: rgba(15, 23, 42, 0.65);
+            overflow: hidden;
+        }
+        #status-history-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 6px 8px;
+            font-size: 12px;
+            color: #cbd5e1;
+            border-bottom: 1px solid #1f2937;
+        }
+        #status-history-list {
+            max-height: 120px;
+            overflow-y: auto;
+            padding: 6px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .history-round {
+            border: 1px solid #334155;
+            border-radius: 6px;
+            background: rgba(2, 6, 23, 0.6);
+        }
+        .history-round > summary {
+            list-style: none;
+            cursor: pointer;
+            padding: 6px 8px;
+            color: #e5e7eb;
+            font-size: 12px;
+        }
+        .history-round > summary::-webkit-details-marker { display: none; }
+        .history-steps {
+            border-top: 1px dashed #334155;
+            padding: 6px 8px;
+            font-size: 11px;
+            color: #cbd5e1;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .history-step { word-break: break-word; }
         /* Guest Agent 名单面板（右下角） */
         #guest-agent-panel {
             position: relative;
@@ -1167,6 +1214,15 @@
                 <button id="btn-state-syncing" onclick="setState('syncing','同步中')">同步</button>
                 <button id="btn-state-error" onclick="setState('error','报警中')">报警</button>
                 <button id="btn-open-drawer" onclick="toggleAssetDrawer()">装修房间</button>
+            </div>
+            <div id="status-history-wrap">
+                <div id="status-history-header">
+                    <span>最近状态历史（可折叠）</span>
+                    <span id="status-history-meta">最近 10 轮</span>
+                </div>
+                <div id="status-history-list">
+                    <div style="color:#94a3b8;font-size:11px;">暂无状态历史</div>
+                </div>
             </div>
         </div>
 
@@ -1652,6 +1708,7 @@
         };
 
         let game, star, sofa, serverroom, officeBgSprite, areas = {}, currentState = 'idle', pendingDesiredState = null, statusText, lastFetch = 0, lastBlink = 0, lastBubble = 0, targetX = 660, targetY = 170, bubble = null, typewriterText = '', typewriterTarget = '', typewriterIndex = 0, lastTypewriter = 0, syncAnimSprite = null, syncAnimPlayable = false, catBubble = null, selectionBoxGraphics = null;
+        let statusHistoryData = { maxRounds: 10, rounds: [] };
         const IDLE_SOFA_ANCHOR = { x: 798, y: 272 }; // 统一中心锚点（原 sofa 左上 670,144 的中心）
         const IDLE_STAR_SCALE = 1.0; // star idle 改为256帧原生显示，不再放大
         // flowers 精灵表规格：固定单帧 128x128，4x4
@@ -1715,11 +1772,13 @@
         const DEMO_MODE = new URLSearchParams(window.location.search).get('demo') === '1';
         const FETCH_INTERVAL = 1000;
         const GUEST_AGENTS_FETCH_INTERVAL = 3500;
+        const STATUS_HISTORY_FETCH_INTERVAL = 5000;
         const BLINK_INTERVAL = 2500;
         const BUBBLE_INTERVAL = 8000;
         const CAT_BUBBLE_INTERVAL = 18000; // cat bubble much less frequent
         let lastCatBubble = 0;
         let lastGuestAgentsFetch = 0;
+        let lastStatusHistoryFetch = 0;
         let lastGuestBubbleAt = 0;
         const TYPEWRITER_DELAY = 50;
         let lastSeenGuestIds = new Set(); // 用于检测新加入的访客，触发欢迎气泡
@@ -3838,6 +3897,54 @@ function toggleBrokerPanel() {
             } catch (e) { console.error('强制冒泡失败:', e); }
         }
 
+        function fmtTime(isoStr) {
+            if (!isoStr) return '--:--:--';
+            try {
+                const d = new Date(isoStr);
+                return d.toLocaleTimeString([], { hour12: false });
+            } catch (e) {
+                return isoStr;
+            }
+        }
+
+        function renderStatusHistory() {
+            const listEl = document.getElementById('status-history-list');
+            const metaEl = document.getElementById('status-history-meta');
+            if (!listEl) return;
+            const rounds = (statusHistoryData && Array.isArray(statusHistoryData.rounds)) ? statusHistoryData.rounds : [];
+            const maxRounds = (statusHistoryData && statusHistoryData.maxRounds) ? statusHistoryData.maxRounds : 10;
+            if (metaEl) metaEl.textContent = `最近 ${maxRounds} 轮`;
+
+            if (!rounds.length) {
+                listEl.innerHTML = '<div style="color:#94a3b8;font-size:11px;">暂无状态历史</div>';
+                return;
+            }
+
+            const items = rounds.slice().reverse().map((r, idx) => {
+                const steps = Array.isArray(r.steps) ? r.steps : [];
+                const title = (r.title || `第 ${rounds.length - idx} 轮`).replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                const range = `${fmtTime(r.startAt)} ~ ${fmtTime(r.endAt || r.startAt)}`;
+                const stepsHtml = steps.map((s, i) => {
+                    const st = (s.state || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                    const dt = (s.detail || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                    return `<div class="history-step">${i + 1}. [${fmtTime(s.at)}] <b>${st}</b> · ${dt}</div>`;
+                }).join('');
+                return `<details class="history-round" ${idx === 0 ? 'open' : ''}><summary>${title}<br><span style="font-size:11px;color:#94a3b8;">${range} · ${steps.length} 步</span></summary><div class="history-steps">${stepsHtml}</div></details>`;
+            }).join('');
+            listEl.innerHTML = items;
+        }
+
+        function fetchStatusHistory() {
+            return fetch('/status-history', { cache: 'no-store' })
+                .then(r => r.json())
+                .then(data => {
+                    if (!data || !data.ok) return;
+                    statusHistoryData = data;
+                    renderStatusHistory();
+                })
+                .catch(() => {});
+        }
+
         function fetchGuestAgents() {
             // demo 随机状态先更新（不依赖后端）
             maybeRandomizeDemoVisitors();
@@ -4493,11 +4600,13 @@ function toggleBrokerPanel() {
 
             fetchStatus();
             fetchGuestAgents();
+            fetchStatusHistory();
         }
 
         function update(time) {
             if (time - lastFetch > FETCH_INTERVAL) { fetchStatus(); lastFetch = time; }
             if (time - lastGuestAgentsFetch > GUEST_AGENTS_FETCH_INTERVAL) { fetchGuestAgents(); lastGuestAgentsFetch = time; }
+            if (time - lastStatusHistoryFetch > STATUS_HISTORY_FETCH_INTERVAL) { fetchStatusHistory(); lastStatusHistoryFetch = time; }
 
             // 兜底：非 idle 时确保机房动画在播，idle 时静止
             const effectiveStateForServer = pendingDesiredState || currentState;

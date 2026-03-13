@@ -40,6 +40,8 @@ FRONTEND_DIR = os.path.join(ROOT_DIR, "frontend")
 FRONTEND_INDEX_FILE = os.path.join(FRONTEND_DIR, "index.html")
 FRONTEND_ELECTRON_STANDALONE_FILE = os.path.join(FRONTEND_DIR, "electron-standalone.html")
 STATE_FILE = os.path.join(ROOT_DIR, "state.json")
+STATUS_HISTORY_FILE = os.path.join(ROOT_DIR, "status-history.json")
+STATUS_HISTORY_MAX_ROUNDS = int(os.environ.get("STAR_STATUS_HISTORY_ROUNDS", "10"))
 AGENTS_STATE_FILE = os.path.join(ROOT_DIR, "agents-state.json")
 JOIN_KEYS_FILE = os.path.join(ROOT_DIR, "join-keys.json")
 FRONTEND_PATH = Path(FRONTEND_DIR)
@@ -225,6 +227,58 @@ def save_state(state: dict):
     """Save state to file"""
     with open(STATE_FILE, "w", encoding="utf-8") as f:
         json.dump(state, f, ensure_ascii=False, indent=2)
+
+
+def load_status_history():
+    if os.path.exists(STATUS_HISTORY_FILE):
+        try:
+            with open(STATUS_HISTORY_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, dict) and isinstance(data.get("rounds"), list):
+                return data
+        except Exception:
+            pass
+    return {"maxRounds": STATUS_HISTORY_MAX_ROUNDS, "rounds": []}
+
+
+def save_status_history(history: dict):
+    history["maxRounds"] = STATUS_HISTORY_MAX_ROUNDS
+    rounds = history.get("rounds", [])
+    if len(rounds) > STATUS_HISTORY_MAX_ROUNDS:
+        rounds = rounds[-STATUS_HISTORY_MAX_ROUNDS:]
+    history["rounds"] = rounds
+    with open(STATUS_HISTORY_FILE, "w", encoding="utf-8") as f:
+        json.dump(history, f, ensure_ascii=False, indent=2)
+
+
+def append_status_history_step(state_name: str, detail: str, ts: str):
+    history = load_status_history()
+    rounds = history.get("rounds", [])
+
+    if state_name == "idle":
+        if rounds and not rounds[-1].get("endAt"):
+            rounds[-1].setdefault("steps", []).append({"state": state_name, "detail": detail, "at": ts})
+            rounds[-1]["endAt"] = ts
+            rounds[-1]["title"] = rounds[-1].get("title") or (rounds[-1]["steps"][0].get("detail") if rounds[-1].get("steps") else "")
+        history["rounds"] = rounds
+        save_status_history(history)
+        return
+
+    if (not rounds) or rounds[-1].get("endAt"):
+        rounds.append({
+            "id": f"r{int(datetime.now().timestamp() * 1000)}",
+            "startAt": ts,
+            "endAt": None,
+            "title": detail or state_name,
+            "steps": []
+        })
+
+    rounds[-1].setdefault("steps", []).append({"state": state_name, "detail": detail, "at": ts})
+    if not rounds[-1].get("title"):
+        rounds[-1]["title"] = detail or state_name
+
+    history["rounds"] = rounds
+    save_status_history(history)
 
 
 def ensure_electron_standalone_snapshot():
@@ -1163,6 +1217,24 @@ def get_status():
     return jsonify(state)
 
 
+@app.route("/status-history", methods=["GET"])
+def get_status_history():
+    """Get recent status rounds and steps for collapsible UI panel."""
+    history = load_status_history()
+    rounds = history.get("rounds", [])
+    try:
+        limit = int(request.args.get("limit", STATUS_HISTORY_MAX_ROUNDS))
+    except Exception:
+        limit = STATUS_HISTORY_MAX_ROUNDS
+    if limit > 0:
+        rounds = rounds[-limit:]
+    return jsonify({
+        "ok": True,
+        "maxRounds": history.get("maxRounds", STATUS_HISTORY_MAX_ROUNDS),
+        "rounds": rounds,
+    })
+
+
 @app.route("/agent-push", methods=["POST"])
 def agent_push():
     """Remote openclaw actively pushes status to office.
@@ -1313,6 +1385,7 @@ def set_state_endpoint():
             state["detail"] = data["detail"]
         state["updated_at"] = datetime.now().isoformat()
         save_state(state)
+        append_status_history_step(state.get("state", "idle"), state.get("detail", ""), state["updated_at"])
         return jsonify({"status": "ok"})
     except Exception as e:
         return jsonify({"status": "error", "msg": str(e)}), 500
